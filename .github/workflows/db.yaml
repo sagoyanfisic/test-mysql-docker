@@ -51,7 +51,7 @@ jobs:
         from pymysql.constants import CLIENT
         
         # Esperamos a que MySQL esté listo
-        time.sleep(10)
+        # time.sleep(10)
         
         # Configuración de la conexión
         connection = pymysql.connect(
