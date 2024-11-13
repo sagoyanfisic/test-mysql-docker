@@ -1,0 +1,64 @@
+name: CI with MySQL
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: test_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pymysql
+
+    - name: Test MySQL connection
+      run: |
+        python -c "
+        import pymysql
+        import time
+        
+        # Esperamos un poco para asegurar que MySQL esté listo
+        time.sleep(10)
+        
+        # Intentamos la conexión
+        connection = pymysql.connect(
+            host='127.0.0.1',
+            user='root',
+            password='root',
+            database='test_db',
+            port=3306
+        )
+        
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute('SELECT 1')
+                result = cursor.fetchone()
+                print('Conexión exitosa:', result)
+        "
+      env:
+        MYSQL_HOST: 127.0.0.1
+        MYSQL_PORT: 3306
