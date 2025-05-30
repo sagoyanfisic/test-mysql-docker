@@ -1,0 +1,237 @@
+name: EKS Management On/Off Cluster - Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to manage'
+        required: true
+        type: choice
+        options:
+          - staging
+          - development
+      action:
+        description: 'Action to perform'
+        required: true
+        type: choice
+        options:
+          - Encendido
+          - Apagado
+      user:
+        description: 'User requesting the action'
+        required: true
+        type: string
+        default: 'test-user'
+
+env:
+  USER: ${{ github.event.inputs.user }}
+  ENVIRONMENT: ${{ github.event.inputs.environment }}
+  ACTION: ${{ github.event.inputs.action }}
+  AWS_REGION: us-west-2
+  TIMEOUT_SECONDS: 600
+  AUTO_SHUTDOWN_HOURS: 6
+  STARTUP_DELAY_SECONDS: 5
+
+jobs:
+  validate-parameters:
+    name: Validate input parameters
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      valid: ${{ steps.validate.outputs.valid }}
+      clusters: ${{ steps.validate.outputs.clusters }}
+    steps:
+      - name: Validate input parameters
+        id: validate
+        run: |
+          echo "==================== VALIDATION ===================="
+          echo "🔍 Validating input parameters..."
+          echo "👤 User: ${{ env.USER }}"
+          echo "🌍 Environment: ${{ env.ENVIRONMENT }}"
+          echo "⚡ Action: ${{ env.ACTION }}"
+          echo "🗺️ AWS Region: ${{ env.AWS_REGION }}"
+          
+          # Set cluster names based on environment
+          if [[ "${{ env.ENVIRONMENT }}" == "staging" ]]; then
+            echo "clusters=[\"zeb-backend-staging\",\"zeb-erpnext-staging\"]" >> $GITHUB_OUTPUT
+            echo "📋 Clusters for staging: zeb-backend-staging, zeb-erpnext-staging"
+          else
+            echo "clusters=[\"zeb-backend-develop\",\"zeb-erpnext-develop\"]" >> $GITHUB_OUTPUT
+            echo "📋 Clusters for development: zeb-backend-develop, zeb-erpnext-develop"
+          fi
+          
+          echo "valid=true" >> $GITHUB_OUTPUT
+          echo "✅ Parameters validated successfully"
+          echo "===================================================="
+
+  power-on:
+    name: Power on ${{ github.event.inputs.environment }} clusters
+    needs: validate-parameters
+    if: needs.validate-parameters.outputs.valid == 'true' && github.event.inputs.action == 'Encendido'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        cluster: ${{ fromJson(needs.validate-parameters.outputs.clusters) }}
+      fail-fast: false
+    steps:
+      - name: Power on cluster ${{ matrix.cluster }}
+        run: |
+          echo "==================== POWER ON ===================="
+          echo "🚀 [SIMULATION] Starting cluster: ${{ matrix.cluster }}"
+          echo "📡 [SIMULATION] Would send SNS message:"
+          echo "   Topic ARN: \${{ secrets.RDS_DIRECT_ON_TOPIC_ARN }}"
+          echo "   Message: '${{ matrix.cluster }},${{ env.AWS_REGION }},on,${{ env.TIMEOUT_SECONDS }}'"
+          echo "   Region: ${{ env.AWS_REGION }}"
+          echo ""
+          echo "💡 Real command would be:"
+          echo "   aws sns publish \\"
+          echo "     --topic-arn \${{ secrets.RDS_DIRECT_ON_TOPIC_ARN }} \\"
+          echo "     --message '${{ matrix.cluster }},${{ env.AWS_REGION }},on,${{ env.TIMEOUT_SECONDS }}'"
+          echo ""
+          echo "✅ [SIMULATION] Successfully sent power-on command for ${{ matrix.cluster }}"
+          echo "===================================================="
+
+      - name: Wait between cluster startups
+        run: |
+          echo "⏳ [SIMULATION] Waiting ${{ env.STARTUP_DELAY_SECONDS }} seconds before next operation..."
+          echo "💤 [SIMULATION] sleep ${{ env.STARTUP_DELAY_SECONDS }}"
+
+  schedule-auto-shutdown:
+    name: Schedule automatic shutdown for ${{ github.event.inputs.environment }}
+    needs: [validate-parameters, power-on]
+    if: needs.validate-parameters.outputs.valid == 'true' && github.event.inputs.action == 'Encendido'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        cluster: ${{ fromJson(needs.validate-parameters.outputs.clusters) }}
+      fail-fast: false
+    steps:
+      - name: Calculate shutdown time
+        id: time
+        run: |
+          FUTURE_TIME=$(date -u -d "+${{ env.AUTO_SHUTDOWN_HOURS }} hours" +"%Y-%m-%dT%H:%M:%S")
+          echo "scheduled_time=$FUTURE_TIME" >> $GITHUB_OUTPUT
+          echo "⏰ [INFO] Calculated shutdown time: $FUTURE_TIME UTC"
+
+      - name: Schedule automatic shutdown for ${{ matrix.cluster }}
+        run: |
+          SCHEDULE_NAME="shutdown-$(echo ${{ matrix.cluster }} | sed 's/zeb-//' | sed 's/-staging/-stg/' | sed 's/-develop/-dev/')-${{ github.run_id }}"
+          
+          echo "================== AUTO-SHUTDOWN =================="
+          echo "📅 [SIMULATION] Creating schedule: $SCHEDULE_NAME"
+          echo "🕐 [SIMULATION] Shutdown time: ${{ steps.time.outputs.scheduled_time }} UTC"
+          echo "🎯 [SIMULATION] Target cluster: ${{ matrix.cluster }}"
+          echo ""
+          echo "💡 Real command would be:"
+          echo "   aws scheduler create-schedule \\"
+          echo "     --name '$SCHEDULE_NAME' \\"
+          echo "     --schedule-expression 'at(${{ steps.time.outputs.scheduled_time }})' \\"
+          echo "     --flexible-time-window Mode=OFF \\"
+          echo "     --description 'Auto-shutdown for ${{ matrix.cluster }} (workflow: ${{ github.run_id }})' \\"
+          echo "     --target '{"
+          echo "       \"Arn\": \"\${{ secrets.SNS_TOPIC_ARN }}\","
+          echo "       \"RoleArn\": \"\${{ secrets.SCHEDULER_ROLE_ARN }}\","
+          echo "       \"Input\": \"${{ matrix.cluster }},${{ env.AWS_REGION }},off,${{ env.TIMEOUT_SECONDS }}\""
+          echo "     }'"
+          echo ""
+          echo "✅ [SIMULATION] Auto-shutdown scheduled for ${{ matrix.cluster }} at ${{ steps.time.outputs.scheduled_time }} UTC"
+          echo "===================================================="
+
+  power-off:
+    name: Power off ${{ github.event.inputs.environment }} clusters
+    needs: validate-parameters
+    if: needs.validate-parameters.outputs.valid == 'true' && github.event.inputs.action == 'Apagado'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        cluster: ${{ fromJson(needs.validate-parameters.outputs.clusters) }}
+      fail-fast: false
+    steps:
+      - name: Power off cluster ${{ matrix.cluster }}
+        run: |
+          echo "==================== POWER OFF ===================="
+          echo "🛑 [SIMULATION] Stopping cluster: ${{ matrix.cluster }}"
+          echo "📡 [SIMULATION] Would send SNS message:"
+          echo "   Topic ARN: \${{ secrets.SNS_TOPIC_ARN }}"
+          echo "   Message: '${{ matrix.cluster }},${{ env.AWS_REGION }},off,${{ env.TIMEOUT_SECONDS }}'"
+          echo "   Region: ${{ env.AWS_REGION }}"
+          echo ""
+          echo "💡 Real command would be:"
+          echo "   aws sns publish \\"
+          echo "     --topic-arn \${{ secrets.SNS_TOPIC_ARN }} \\"
+          echo "     --message '${{ matrix.cluster }},${{ env.AWS_REGION }},off,${{ env.TIMEOUT_SECONDS }}'"
+          echo ""
+          echo "✅ [SIMULATION] Successfully sent power-off command for ${{ matrix.cluster }}"
+          echo "===================================================="
+
+      - name: Cancel any pending auto-shutdown schedules
+        run: |
+          SCHEDULE_PATTERN="shutdown-$(echo ${{ matrix.cluster }} | sed 's/zeb-//' | sed 's/-staging/-stg/' | sed 's/-develop/-dev/')"
+          
+          echo "================= CLEANUP SCHEDULES ================="
+          echo "🔍 [SIMULATION] Looking for schedules matching pattern: $SCHEDULE_PATTERN"
+          echo "💡 Real command would be:"
+          echo "   aws scheduler list-schedules \\"
+          echo "     --query \"Schedules[?contains(Name, '$SCHEDULE_PATTERN')].Name\" \\"
+          echo "     --output text"
+          echo ""
+          echo "🗑️ [SIMULATION] Would delete any found schedules for ${{ matrix.cluster }}"
+          echo "💡 Delete command would be:"
+          echo "   aws scheduler delete-schedule --name \$SCHEDULE_NAME"
+          echo ""
+          echo "ℹ️ [SIMULATION] Cleanup completed for ${{ matrix.cluster }}"
+          echo "===================================================="
+
+  notify-completion:
+    name: Notify completion
+    needs: [validate-parameters, power-on, power-off, schedule-auto-shutdown]
+    if: always() && needs.validate-parameters.outputs.valid == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Determine operation status
+        id: status
+        run: |
+          echo "================== STATUS CHECK =================="
+          echo "🔍 Checking job statuses..."
+          echo "   power-on result: ${{ needs.power-on.result }}"
+          echo "   power-off result: ${{ needs.power-off.result }}"
+          echo "   schedule-auto-shutdown result: ${{ needs.schedule-auto-shutdown.result }}"
+          
+          if [[ "${{ needs.power-on.result }}" == "success" || "${{ needs.power-off.result }}" == "success" ]]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "message=EKS cluster operation completed successfully" >> $GITHUB_OUTPUT
+            echo "✅ Overall status: SUCCESS"
+          elif [[ "${{ needs.power-on.result }}" == "failure" || "${{ needs.power-off.result }}" == "failure" ]]; then
+            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "message=EKS cluster operation failed" >> $GITHUB_OUTPUT
+            echo "❌ Overall status: FAILURE"
+          else
+            echo "status=skipped" >> $GITHUB_OUTPUT
+            echo "message=EKS cluster operation was skipped" >> $GITHUB_OUTPUT
+            echo "⏭️ Overall status: SKIPPED"
+          fi
+          echo "===================================================="
+
+      - name: Log operation summary
+        run: |
+          echo "================= OPERATION SUMMARY ================="
+          echo "📋 Final Summary:"
+          echo "   👤 User: ${{ env.USER }}"
+          echo "   🌍 Environment: ${{ env.ENVIRONMENT }}"
+          echo "   ⚡ Action: ${{ env.ACTION }}"
+          echo "   📊 Status: ${{ steps.status.outputs.status }}"
+          echo "   🔗 Workflow Run: ${{ github.run_id }}"
+          echo "   🕐 Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo ""
+          
+          if [[ "${{ env.ACTION }}" == "Encendido" && "${{ steps.status.outputs.status }}" == "success" ]]; then
+            echo "   ⏰ Auto-shutdown: Scheduled for ${{ env.AUTO_SHUTDOWN_HOURS }} hours from now"
+          fi
+          
+          echo ""
+          echo "🎯 This was a SIMULATION run - no real AWS resources were affected"
+          echo "📝 Review the logs above to see what commands would be executed"
+          echo "===================================================="
