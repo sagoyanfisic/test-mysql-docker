@@ -51,15 +51,7 @@ jobs:
           echo "⚡ Action: ${{ env.ACTION }}"
           echo "🗺️ AWS Region: ${{ env.AWS_REGION }}"
           
-          # Set cluster names based on environment
-          if [[ "${{ env.ENVIRONMENT }}" == "staging" ]]; then
-            echo "clusters=[\"zeb-backend-staging\",\"zeb-erpnext-staging\"]" >> $GITHUB_OUTPUT
-            echo "📋 Clusters for staging: zeb-backend-staging, zeb-erpnext-staging"
-          else
-            echo "clusters=[\"zeb-backend-develop\",\"zeb-erpnext-develop\"]" >> $GITHUB_OUTPUT
-            echo "📋 Clusters for development: zeb-backend-develop, zeb-erpnext-develop"
-          fi
-          
+        
           echo "valid=true" >> $GITHUB_OUTPUT
           echo "✅ Parameters validated successfully"
           echo "===================================================="
@@ -196,20 +188,7 @@ jobs:
           echo "   power-off result: ${{ needs.power-off.result }}"
           echo "   schedule-auto-shutdown result: ${{ needs.schedule-auto-shutdown.result }}"
           
-          if [[ "${{ needs.power-on.result }}" == "success" || "${{ needs.power-off.result }}" == "success" ]]; then
-            echo "status=success" >> $GITHUB_OUTPUT
-            echo "message=EKS cluster operation completed successfully" >> $GITHUB_OUTPUT
-            echo "✅ Overall status: SUCCESS"
-          elif [[ "${{ needs.power-on.result }}" == "failure" || "${{ needs.power-off.result }}" == "failure" ]]; then
-            echo "status=failure" >> $GITHUB_OUTPUT
-            echo "message=EKS cluster operation failed" >> $GITHUB_OUTPUT
-            echo "❌ Overall status: FAILURE"
-          else
-            echo "status=skipped" >> $GITHUB_OUTPUT
-            echo "message=EKS cluster operation was skipped" >> $GITHUB_OUTPUT
-            echo "⏭️ Overall status: SKIPPED"
-          fi
-          echo "===================================================="
+         
 
       - name: Log operation summary
         run: |
@@ -222,11 +201,7 @@ jobs:
           echo "   🔗 Workflow Run: ${{ github.run_id }}"
           echo "   🕐 Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           echo ""
-          
-          if [[ "${{ env.ACTION }}" == "Encendido" && "${{ steps.status.outputs.status }}" == "success" ]]; then
-            echo "   ⏰ Auto-shutdown: Scheduled for ${{ env.AUTO_SHUTDOWN_HOURS }} hours from now"
-          fi
-          
+         
           echo ""
           echo "🎯 This was a SIMULATION run - no real AWS resources were affected"
           echo "📝 Review the logs above to see what commands would be executed"
