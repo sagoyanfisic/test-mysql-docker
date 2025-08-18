@@ -1,0 +1,130 @@
+name: EKS Management On/Off Cluster
+
+on:
+  repository_dispatch:
+    types: [ eks-cluster-power ]
+
+env:
+  user: ${{ github.event.client_payload.userForm }}
+  environment: ${{ github.event.client_payload.environment }}
+  action: ${{ github.event.client_payload.actionCluster }}
+  path: "./kube-stack/overlays"
+
+jobs:
+  validate-parameters:
+    name: Validate input parameters and prepare environment
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Print input parameters
+        run: |
+          echo "User: ${{ env.user }}"
+          echo "Environment: ${{ env.environment }}"
+          echo "Action: ${{ env.action }}"
+          echo "Path: ${{ env.path }}"
+  
+  power-on-staging:
+    name: Power on staging clusters
+    needs: validate-parameters
+    if: ${{ env.environment == 'staging' && env.action == 'Encendido' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_TOKEN_ACTIONS }}
+          ref: master
+      
+      - name: Set path for kustomize
+        id: path_kustomize
+        run: |
+          echo "pathm=${{ env.path }}/management/jobs/kustomization.yaml" >> $GITHUB_OUTPUT
+      
+      - name: Edit kustomize
+        env:
+          KPATHM: ${{ steps.path_kustomize.outputs.pathm }}
+        run: |
+          echo "Path to replace is: ${KPATHM}"
+          echo "::group::Before changes"
+          cat ${KPATHM}
+          echo '::endgroup::'
+          timestamp=$(date +%s)
+          sed -i "s#\bnamePrefix:.*#namePrefix: $timestamp-#" ${KPATHM}
+          echo "Encendido"
+          sed -i 's#"false" =#"true" =#g' ${KPATHM}
+          echo "::group::After Changes"
+          cat ${KPATHM}
+          echo '::endgroup::'
+      
+      - name: Check if there are any changes
+        id: verify_diff
+        run: |
+          git diff --quiet . || echo "changed=true" >> $GITHUB_OUTPUT
+  
+      - name: Commit image change
+        id: commit
+        if: steps.verify_diff.outputs.changed == 'true'
+        run: |
+          git config --local user.email "tech@zeb.mx"
+          git config --local user.name "ZebTechBot"
+          git pull
+          git add .
+          git commit -m "${{ env.path }}: ${{ env.action }} clusters de ${{ env.environment }} ${{ env.user }}" -a
+          
+      - name: Push changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GH_TOKEN_ACTIONS }}
+          branch: ${{ github.ref }}
+
+      - name: Send SNS for zeb-backend-staging
+        uses: nothingalike/sns-publish-topic@v1.6
+        with:
+          MESSAGE: 'zeb-backend-staging,us-west-2,on,600,${{ env.action }},6'
+          TOPIC_ARN: '${{ secrets.RDS_DIRECT_ON_TOPIC_ARN }}'
+        env:
+          AWS_REGION: us-west-2
+          AWS_ACCESS_KEY_ID: '${{ secrets.AWS_ACCESS_KEY_ID }}'
+          AWS_SECRET_ACCESS_KEY: '${{ secrets.AWS_SECRET_ACCESS_KEY }}'
+      
+      - name: Wait
+        run: sleep 5
+
+      - name: Send SNS for zeb-erpnext-staging
+        uses: nothingalike/sns-publish-topic@v1.6
+        with:
+          MESSAGE: 'zeb-erpnext-staging,us-west-2,on,600,${{ env.action }},6'
+          TOPIC_ARN: ${{ secrets.RDS_DIRECT_ON_TOPIC_ARN }}
+        env:
+          AWS_REGION: us-west-2
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+  power-on-development:
+    name: Power on development clusters
+    needs: validate-parameters
+    if: ${{ env.environment == 'development' && env.action == 'Encendido' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Send SNS for zeb-erpnext-develop
+        uses: nothingalike/sns-publish-topic@v1.6
+        with:
+          MESSAGE: 'zeb-erpnext-develop,us-west-2,on,600,${{ env.action }},6'
+          TOPIC_ARN: ${{ secrets.RDS_DIRECT_ON_TOPIC_ARN }}
+        env:
+          AWS_REGION: us-west-2
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Wait
+        run: sleep 5
+
+      - name: Send SNS for zeb-backend-develop
+        uses: nothingalike/sns-publish-topic@v1.6
+        with:
+          MESSAGE: 'zeb-backend-develop,us-west-2,on,600,${{ env.action }},6'
+          TOPIC_ARN: ${{ secrets.RDS_DIRECT_ON_TOPIC_ARN }}
+        env:
+          AWS_REGION: us-west-2
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
