@@ -26,7 +26,7 @@ jobs:
   power-on-staging:
     name: Power on staging clusters
     needs: validate-parameters
-    if: ${{ env.environment == 'staging' && env.action == 'Encendido' }}
+    if: ${{ github.event.client_payload.environment == 'staging' && github.event.client_payload.actionCluster == 'Encendido' }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -103,7 +103,7 @@ jobs:
   power-on-development:
     name: Power on development clusters
     needs: validate-parameters
-    if: ${{ env.environment == 'development' && env.action == 'Encendido' }}
+    if: ${{ github.event.client_payload.environment == 'development' && github.event.client_payload.actionCluster == 'Encendido' }}
     runs-on: ubuntu-24.04
     steps:
       - name: Send SNS for zeb-erpnext-develop
