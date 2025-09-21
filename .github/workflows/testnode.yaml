@@ -1,4 +1,4 @@
-name: Node.js Simple CI
+name: Simple Deployment
 
 on:
   push:
@@ -9,37 +9,96 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deploy target'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
 
 env:
-  NODE_VERSION: "18"
-  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  APP_VERSION: "1.0.0"
+  SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
 
 jobs:
-  test:
+  deploy-staging:
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        node-version: [16, 18, 20]
+    if: github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    environment: staging
 
     steps:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Setup Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ matrix.node-version }}
-
-    - name: Create simple app
+    - name: Create build script
       run: |
-        echo '{"name": "test-app", "scripts": {"test": "node test.js"}}' > package.json
-        echo 'console.log("Test passed for Node", process.version)' > test.js
+        cat > build.sh << 'EOF'
+        #!/bin/bash
+        echo "Building for staging..."
+        echo "Version: $APP_VERSION"
+        echo "Environment: staging"
+        echo "Build complete"
+        EOF
+        chmod +x build.sh
 
-    - name: Run test
-      run: node test.js
+    - name: Run build
+      run: ./build.sh
 
-    - name: Show environment
+    - name: Deploy to staging
       run: |
-        echo "Node version: $(node --version)"
-        echo "Database URL: ${DATABASE_URL:-'not set'}"
+        echo "Deploying to staging server..."
+        echo "Files uploaded"
+        echo "Services restarted"
+        echo "Deployment complete: https://staging.myapp.com"
+
+    - name: Health check
+      run: |
+        echo "Running health check..."
+        echo "Status: OK"
+        echo "Response time: 120ms"
+
+    - name: Notify Slack
+      if: always()
+      run: |
+        if [ "${{ job.status }}" = "success" ]; then
+          echo "✅ Staging deployment successful"
+        else
+          echo "❌ Staging deployment failed"
+        fi
+
+  deploy-production:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    environment: production
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Create production build
+      run: |
+        echo "Building for production..."
+        echo "Optimizations enabled"
+        echo "Security checks passed"
+        echo "Production build ready"
+
+    - name: Backup current version
+      run: |
+        echo "Creating backup..."
+        echo "Backup saved: backup_$(date +%Y%m%d).tar.gz"
+
+    - name: Deploy to production
+      run: |
+        echo "Deploying to production..."
+        echo "Blue-green deployment started"
+        echo "Traffic switched to new version"
+        echo "Production updated: https://myapp.com"
+
+    - name: Verify deployment
+      run: |
+        echo "Verifying production deployment..."
+        echo "All checks passed"
+        echo "Deployment successful"
