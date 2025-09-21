@@ -1,0 +1,45 @@
+name: Node.js Simple CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: "18"
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [16, 18, 20]
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+
+    - name: Create simple app
+      run: |
+        echo '{"name": "test-app", "scripts": {"test": "node test.js"}}' > package.json
+        echo 'console.log("Test passed for Node", process.version)' > test.js
+
+    - name: Run test
+      run: node test.js
+
+    - name: Show environment
+      run: |
+        echo "Node version: $(node --version)"
+        echo "Database URL: ${DATABASE_URL:-'not set'}"
